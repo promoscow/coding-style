@@ -1,6 +1,6 @@
 # Архитектурные решения
 
-В качестве основных архитектурных правил мы придерживаемся принципов [S.O.L.I.D.](https://habr.com/ru/post/508086/) 
+В качестве основных архитектурных правил мы придерживаемся принципов [S.O.L.I.D.](https://habr.com/ru/post/508086/)
 В стиле кода мы придерживаемся [Google Java Style Guide](https://habr.com/ru/post/513176/) для Java и [Kotlin Coding Conventions](https://habr.com/ru/articles/708074/) для Kotlin (с опущением некоторых правил).
 
 ---
@@ -72,11 +72,11 @@
 
 #### Почему мы не используем метод PATCH
 
-Мы не используем метод PATCH, поскольку он подразумевает обновление только тех полей, которые были получены. 
+Мы не используем метод PATCH, поскольку он подразумевает обновление только тех полей, которые были получены.
 Такой подход имеет несколько недостатков.
 
-При получении модели, для которой нужно обновить произвольные поля, мы должны или иметь репозиторий, который будет знать, какие поля должны быть обновлены, или обновлять существующую модель, поля которой будут обогащены полученными значениями. 
-Если мы решаем проблему на стороне репозитория, тогда нам нужно проверять, что поле не null и апдейтить только его. 
+При получении модели, для которой нужно обновить произвольные поля, мы должны или иметь репозиторий, который будет знать, какие поля должны быть обновлены, или обновлять существующую модель, поля которой будут обогащены полученными значениями.
+Если мы решаем проблему на стороне репозитория, тогда нам нужно проверять, что поле не null и апдейтить только его.
 Например:
 
 ```kotlin
@@ -86,20 +86,20 @@ CalculationTypeEntity.update({ CalculationTypeEntity.id eq calculationType.id!! 
 }
 ```
 
-Для этого, все поля бизнес-сущности придётся сделать nullable в угоду репозиторию. 
+Для этого, все поля бизнес-сущности придётся сделать nullable в угоду репозиторию.
 Что нарушает луковичную архитектуру - бизнес-сущность подстраивается под работу репозитория.
 
-Если же мы решаем проблему через обогащение уже хранящейся сущности, нам придётся сделать лишний запрос в базу данных. 
+Если же мы решаем проблему через обогащение уже хранящейся сущности, нам придётся сделать лишний запрос в базу данных.
 Выглядеть это будет следующим образом:
 
 ```kotlin
 fun toCalculationIndicatorTypeUpdatedOnly(request: CalculationIndicatorTypeUpdateRequest): CalculationIndicatorType = let {
-        service.get(request.id) //получили сохранённую сущность из базы
-            .let {
-                request.name?.also { name -> it.name = name } //обновляем значение, если поле не null
-                //и так для каждого поля
-            }
-    }
+    service.get(request.id) //получили сохранённую сущность из базы
+        .let {
+            request.name?.also { name -> it.name = name } //обновляем значение, если поле не null
+            //и так для каждого поля
+        }
+}
 ```
 
 Главный же минус такого подхода: мы не сможем поле, для которого уже было проставлено значение, сделать обратно null - если оно придёт null, это будет сигналом, что поле обновлять не нужно.
@@ -115,7 +115,7 @@ fun toCalculationIndicatorTypeUpdatedOnly(request: CalculationIndicatorTypeUpdat
 
 `/restaurant/{id}/bind/dish/{id}`
 
-Ключи передаются через переменные пути. 
+Ключи передаются через переменные пути.
 Общие параметры (например, параметры фильтрации или пейджинга) передаются как параметры запроса.
 
 Пример реализации контроллера:
@@ -126,7 +126,7 @@ fun toCalculationIndicatorTypeUpdatedOnly(request: CalculationIndicatorTypeUpdat
 class UserControllerImpl(
     private val service: UserService
 ) : UserController {
- 
+
     @PostMapping
     override fun create(@RequestBody request: UserCreateRequest): ResponseEntity<UserResponse> =
         request
@@ -134,20 +134,20 @@ class UserControllerImpl(
             .let { service.create(it) }
             .toResponse()
             .let { ResponseEntity.ok(it) }
- 
+
     @PutMapping
     override fun update(@RequestBody request: UserUpdateRequest): ResponseEntity<Unit> =
         request
             .toUser()
             .also { service.update(it) }
             .let { ResponseEntity.ok().build() }
- 
+
     @GetMapping
     override fun get(id: UUID): ResponseEntity<UserResponse> =
         service.get(id)
             .toResponse()
             .let { ResponseEntity.ok(it) }
- 
+
     @GetMapping("/all")
     override fun getAll(
         @RequestParam filterParams: FilterParams,
@@ -157,7 +157,7 @@ class UserControllerImpl(
         service
             .getAll(filterParams, page, size)
             .let { ResponseEntity.ok(it) }
- 
+
     @DeleteMapping
     override fun delete(id: UUID): ResponseEntity<Unit> =
         service.delete(id)
@@ -165,13 +165,106 @@ class UserControllerImpl(
 }
 ```
 
+### Функциональное разделение API
+
+Мы разделяем api по областям применения.
+Например, все контроллеры, доступные из панели администратора, мы помещаем в пакет `admin` пакета `controller`; пользовательские контроллеры - в пакет `api`; внутренние контроллеры - в пакет `internal`.
+
+![Разделение API](media/divide-controllers.png)
+
+Соответственно, в начало иерархии пути добавляется соответствующий префикс: `/admin`, `/api`, `/internal` и так далее.
+Такой подход позволяет разделить API на области применения и упрощает управление авторизацией.
+
+При настройке Swagger мы также разделяем API на области.
+
+Пример настройки Swagger:
+
+```kotlin
+@Configuration
+class SwaggerConfig {
+
+    @Bean
+    fun openAPI(): OpenAPI? {
+        val swaggerInfo = Info()
+            .title("Сервис \"Мой сервис\"")
+            .description("Мой самый лучший сервис.")
+            .version("v0.0.1")
+        return OpenAPI().info(swaggerInfo)
+    }
+
+    @Bean
+    fun v1api(): GroupedOpenApi =
+        GroupedOpenApi
+            .builder()
+            .group("Панель администратора")
+            .pathsToMatch("/admin/**")
+            .build()
+
+    @Bean
+    fun v2api(): GroupedOpenApi =
+        GroupedOpenApi
+            .builder()
+            .group("Пользовательское API")
+            .pathsToMatch("/api/**")
+            .build()
+
+    @Bean
+    fun v2api(): GroupedOpenApi =
+        GroupedOpenApi
+            .builder()
+            .group("Внутреннее API")
+            .pathsToMatch("/internal/**")
+            .build()
+}
+```
+
+### Версионирование API
+
+Поскольку обеспечить обновление ПО на всех устройствах-клиентах практически невозможно, мы поддерживаем версионирование API.
+Версии указываются внутри функциональной области контроллера (`admin.v1`, `admin.v2`, `api.v1` и так далее).
+
+Соответственно, версия контроллера отражена в пути в том же порядке: `/admin/v1`, `/api/v2` и так далее.
+
+Название классов в зависимости от версии не меняется.
+Если в пакете v1 существует класс `CalculationController`, в пакете v2 также будет класс `CalculationController`.
+Версия контроллера будет понятна из названия пакета, в котором он находится.
+
+При версионировании мы не используем номер версии (например, `UserDtoV2`, `getUserV3`).
+Вместо этого, мы определяем новую версию как основную и переименовываем её в наименование старой версии.
+Старую версию мы переименовываем так, чтобы было понятно, чем она отличается от новой.
+
+Пример:
+
+```kotlin
+//v1.CalculationController
+
+    @GetMapping("/admin/v1/calculations/{id}")
+    fun getWithoutUser(@PathVariable id: UUID): ResponseEntity<BaseResponse<CalculationWithoutUserResponse>> =
+        service.get(id)
+            .let { mapper.toResponseWithoutUser(it) }
+            .toBaseResponse()
+            .ok()
+
+//v2.CalculationController
+
+    //в новой версии добавилось поле user
+    @GetMapping("/admin/v2/calculations/{id}")
+    fun get(@PathVariable id: UUID): ResponseEntity<BaseResponse<CalculationResponse>> =
+        service.get(id)
+            .let { mapper.toResponse(it) }
+            .toBaseResponse()
+            .ok()
+```
+
+Такое наименование выглядит громоздким, но мы принимаем это неудобство ввиду конечного срока жизни эндпоинтов обратной совместимости и наглядной информативности наименований.
+
 ## Описание пакета entity
 
 В пакете entity содержатся бизнес-сущности.
 
-Мы стараемся делать бизнес-сущности эргономичными. 
-При проектировании мы создаём "жирную" бизнес-сущность, со всеми зависимыми бизнес-сущностями. 
-Далее, по ходу развития приложения, могут быть созданы более "лёгкие" подвиды сущностей, позволяющие облегчить запрос получения такой бизнес-сущности из DAO. 
+Мы стараемся делать бизнес-сущности эргономичными.
+При проектировании мы создаём "жирную" бизнес-сущность, со всеми зависимыми бизнес-сущностями.
+Далее, по ходу развития приложения, могут быть созданы более "лёгкие" подвиды сущностей, позволяющие облегчить запрос получения такой бизнес-сущности из DAO.
 Такие сущности имеют узкую специализацию в рамках своих задач.
 
 Пример "жирной" сущности и её более лёгкого подвида:
@@ -187,7 +280,7 @@ data class ConfirmationByDocument(
     val statusMessage: String? = null,
     val domainId: UUID
 )
- 
+
 //в рамках реализуемой задачи бизнес-сущности не требуются статус, полные зависимые сущности (только id), а также, документ подтверждения и домен
 data class ConfirmationByDocumentSimple(
     val id: UUID? = null,
@@ -199,18 +292,18 @@ data class ConfirmationByDocumentSimple(
 
 ## Описание пакета service
 
-В этом слое инкапсулирована вся бизнес-логика. 
-Логический слой содержит интерфейсы как неизменяемые контракты. 
+В этом слое инкапсулирована вся бизнес-логика.
+Логический слой содержит интерфейсы как неизменяемые контракты.
 Реализации содержатся в отдельном пакете impl.
 
-Слой бизнес-логики не содержит никаких ссылок на DAO, кроме ссылок на интерфейсы. 
-Интерфейсы DAO являются лишь контрактами, без ссылок на реализацию. 
+Слой бизнес-логики не содержит никаких ссылок на DAO, кроме ссылок на интерфейсы.
+Интерфейсы DAO являются лишь контрактами, без ссылок на реализацию.
 Таким образом, соблюдается чистота архитектуры.
 
 ## Описание пакета repository
 
-Пакет repository включает в себя интерфейсы репозиториев и пакеты с реализациями. 
-Скорее всего, в реальности будет только одна реализация, но архитектура никак не ограничивает другие реализации - например, через Spring Data JPA, QueryDSL, JOOQ, Exposed или JDBC. 
+Пакет repository включает в себя интерфейсы репозиториев и пакеты с реализациями.
+Скорее всего, в реальности будет только одна реализация, но архитектура никак не ограничивает другие реализации - например, через Spring Data JPA, QueryDSL, JOOQ, Exposed или JDBC.
 В таком случае, будут добавлены пакеты jpa, jooq и так далее, в которых будут реализованы интерфейсы.
 
 Для хранения репозиторной сущности и мапинга её с бизнес-сущностью используются пакеты entity и mapper.
@@ -224,7 +317,7 @@ data class ConfirmationByDocumentSimple(
 
 ![Компоновка репозитория](media/repository-packages.png)
 
-Как было сказано выше, преобразование репозиторных сущностей происходит в мапере. 
+Как было сказано выше, преобразование репозиторных сущностей происходит в мапере.
 Поскольку для разных задач может быть несколько подвидов одной и той же бизнес-сущности, в таком мапере будут содержаться все мапинги на все подвиды бизнес-сущности, а также, обратное преобразование из бизнес-сущности в репозиторную.
 
 ```kotlin
@@ -232,15 +325,15 @@ fun ResultRow.toUser(): User = User(
     id = this[UserEntity.id].value,
     name = this[UserEntity.name]
 )
- 
+
 fun ResultRow.toUserIdOnly(): UserIdOnly = UserIdOnly(
     id = this[UserEntity.id].value
 )
- 
+
 fun User.toInsertStatement(statement: InsertStatement<Number>): InsertStatement<Number> = statement.also {
     it[UserEntity.name] = this.name
 }
- 
+
 fun User.toUpdateStatement(statement: UpdateStatement): UpdateStatement = statement.also {
     it[UserEntity.name] = this.name
 }
@@ -248,5 +341,5 @@ fun User.toUpdateStatement(statement: UpdateStatement): UpdateStatement = statem
 
 ### Описание пакета util
 
-В пакете util содержатся утилитные функции, не привязанные к конкретной предметной области и вызываемые из любой точки приложения. 
+В пакете util содержатся утилитные функции, не привязанные к конкретной предметной области и вызываемые из любой точки приложения.
 Например, функция <T> T.toJson(): String, преобразовывающая любой объект в строку в формате JSON.
