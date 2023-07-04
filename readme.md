@@ -28,6 +28,7 @@
 * [Кредо разработчика](credo.md)
 * [Архитектурные решения](architecture.md)
 * [Стиль кода](coding-style.md)
+* [Правила именования](naming.md)
 * [Тестирование](testing.md)
 * [Этапы реализации приложения](implementation.md)
 * [Код-ревью](code-review.md)
